@@ -21,13 +21,21 @@ Content:
 {content[:4000]}
 \"\"\"
 
-Return results in JSON format with keys:
-- fill_in_the_blanks
-- mcq
-- true_false
-- one_mark
-- two_mark
-- five_mark
+Respond with **only valid JSON** in the following format:
+
+{{
+  "fill_in_the_blanks": ["..."],
+  "mcq": [
+    {{
+      "question": "Sample?",
+      "options": ["A", "B", "C", "D"]
+    }}
+  ],
+  "true_false": ["..."],
+  "one_mark": ["..."],
+  "two_mark": ["..."],
+  "five_mark": ["..."]
+}}
 """
 
 async def generate_questions(content: str):
@@ -47,7 +55,9 @@ async def generate_questions(content: str):
         result = response['choices'][0]['message']['content']
         return json.loads(result)
     except Exception as e:
+        # Debug print (logs to backend stdout)
+        print("⚠️ Failed to parse response. Raw result:\n", result)
         return {
             "error": f"Failed to parse LLM response: {str(e)}",
-            "raw_response": response['choices'][0]['message']['content']
+            "raw_response": result
         }

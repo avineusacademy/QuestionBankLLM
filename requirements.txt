@@ -2,3 +2,5 @@ streamlit
 requests
 python-docx
 pdfkit
+Pillow
+PyPDF2
