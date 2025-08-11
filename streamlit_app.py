@@ -7,7 +7,16 @@ from PIL import Image
 from PyPDF2 import PdfMerger
 import os
 
+import pytesseract
+from pdf2image import convert_from_bytes
+from fpdf import FPDF
+
+
 BACKEND_URL = "http://backend:8000/process/"
+
+# Path to your Unicode font for PDF embedding
+FONT_PATH = "fonts/dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf"
+FONT_NAME = "DejaVu"
 
 def download_docx(questions):
     doc = docx.Document()
@@ -25,6 +34,7 @@ def download_docx(questions):
     buffer.seek(0)
     return buffer
 
+
 def download_txt(questions):
     text = ""
     for section, items in questions.items():
@@ -38,8 +48,10 @@ def download_txt(questions):
                 text += f"Q: {item}\n"
     return text
 
+
 def convert_txt_to_pdf(text):
     return pdfkit.from_string(text, False)
+
 
 def get_ordered_files(uploaded_files):
     def extract_order(file_name):
@@ -51,6 +63,7 @@ def get_ordered_files(uploaded_files):
             return 9999  # Files without order suffix go at the end
     return sorted(uploaded_files, key=lambda f: extract_order(f.name))
 
+
 def create_title_pdf(title_text):
     html = f"""
     <html>
@@ -60,6 +73,40 @@ def create_title_pdf(title_text):
     """
     pdf_data = pdfkit.from_string(html, False)
     return BytesIO(pdf_data)
+
+
+def ocr_pdf_to_searchable_pdf(pdf_bytes, poppler_path="/usr/bin"):
+    images = convert_from_bytes(pdf_bytes, poppler_path=poppler_path)
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(0)
+
+    try:
+        pdf.add_font(family=FONT_NAME, style="", fname=FONT_PATH, uni=True)
+        pdf.set_font(family=FONT_NAME, size=12)
+    except Exception as e:
+        st.warning(f"Failed to load Unicode font from {FONT_PATH}: {e}")
+        pdf.set_font("Arial", size=12)
+
+    # OCR only Tamil, Hindi, English languages
+    tess_langs = "tam+hin+eng"
+
+    for image in images:
+        text = pytesseract.image_to_string(image, lang=tess_langs)
+        pdf.add_page()
+        for line in text.split('\n'):
+            try:
+                clean_line = line.encode("utf-8").decode("utf-8")
+                pdf.cell(0, 10, clean_line, ln=True)
+            except UnicodeEncodeError:
+                safe_line = line.encode("ascii", "replace").decode("ascii")
+                pdf.cell(0, 10, safe_line, ln=True)
+
+    output = BytesIO()
+    pdf.output(output)
+    output.seek(0)
+    return output
+
 
 st.title("📘 Question Bank Generator from TXT/PDF")
 
@@ -80,6 +127,24 @@ if image_file:
             st.download_button("Download Image as PDF", img_pdf, file_name="converted_image.pdf")
         except Exception as e:
             st.error(f"Failed to convert image: {e}")
+
+# --- Convert uploaded PDFs (image-based) to extractable PDFs ---
+if uploaded_files:
+    if any(f.type == "application/pdf" for f in uploaded_files):
+        if st.button("Convert Uploaded PDF(s) to Extractable PDF"):
+            with st.spinner("Converting PDFs via OCR..."):
+                combined_searchable_pdf = PdfMerger()
+                for file in uploaded_files:
+                    if file.type == "application/pdf":
+                        file.seek(0)
+                        ocr_pdf = ocr_pdf_to_searchable_pdf(file.read())
+                        combined_searchable_pdf.append(ocr_pdf)
+                output_pdf = BytesIO()
+                combined_searchable_pdf.write(output_pdf)
+                combined_searchable_pdf.close()
+                output_pdf.seek(0)
+                st.success("Conversion completed!")
+                st.download_button("Download Extractable PDF", output_pdf, file_name="extractable_pdf.pdf")
 
 # 🔹 Process and display question bank
 if uploaded_files:

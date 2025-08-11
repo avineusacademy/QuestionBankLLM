@@ -5,12 +5,15 @@ WORKDIR /frontend
 
 COPY requirements.txt .
 
-# Install wkhtmltopdf and dependencies
+# Install necessary system packages
 RUN apt-get update && apt-get install -y \
     wkhtmltopdf \
     libxrender1 \
     libxext6 \
     libfontconfig1 \
+    poppler-utils \
+    tesseract-ocr \
+    libglib2.0-0 \
     && pip install --no-cache-dir -r requirements.txt \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*

@@ -1,10 +1,7 @@
-# Backend Dockerfile
 FROM python:3.10-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies for wkhtmltopdf and langchain
 RUN apt-get update && \
     apt-get install -y \
     wkhtmltopdf \
@@ -16,15 +13,11 @@ RUN apt-get update && \
     libxext6 \
     && apt-get clean
 
-# Copy and install Python dependencies
 COPY app/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy app code
 COPY app/ .
 
-# Expose FastAPI port
 EXPOSE 8000
 
-# Run FastAPI app with live reload (for dev)
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

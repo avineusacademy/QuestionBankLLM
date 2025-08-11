@@ -12,6 +12,7 @@ services:
       - "8000:8000"
     networks:
       - app-network
+    restart: unless-stopped
 
   frontend:
     build:
@@ -24,6 +25,7 @@ services:
       - backend
     networks:
       - app-network
+    restart: unless-stopped
 
 networks:
   app-network:

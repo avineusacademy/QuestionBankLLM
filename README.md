@@ -31,9 +31,14 @@ This project allows you to upload multiple TXT or PDF files, merges their conten
    git clone https://github.com/your-username/question-bank-generator.git
    cd question-bank-generator
 
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
 docker-compose up --build
 
 Streamlit frontend: http://localhost:8501
 FastAPI docs (optional): http://localhost:8000/docs
+
+
+In building machine
+sudo apt install tesseract-ocr
+sudo apt install tesseract-ocr-eng
+sudo apt install poppler-utils
+sudo apt install tesseract-ocr-hin tesseract-ocr-tam

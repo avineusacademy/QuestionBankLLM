@@ -4,3 +4,6 @@ python-docx
 pdfkit
 Pillow
 PyPDF2
+pytesseract
+pdf2image
+fpdf2
