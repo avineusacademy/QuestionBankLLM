@@ -1,9 +1,7 @@
-import openai
-import os
-import asyncio
+import subprocess
 import json
-
-openai.api_key = os.getenv("OPENAI_API_KEY")
+from typing import List
+from langchain_core.documents import Document
 
 def build_prompt(content: str) -> str:
     return f"""
@@ -28,7 +26,8 @@ Respond with **only valid JSON** in the following format:
   "mcq": [
     {{
       "question": "Sample?",
-      "options": ["A", "B", "C", "D"]
+      "options": ["A", "B", "C", "D"],
+      "answer": "A"
     }}
   ],
   "true_false": ["..."],
@@ -38,26 +37,30 @@ Respond with **only valid JSON** in the following format:
 }}
 """
 
-async def generate_questions(content: str):
-    prompt = build_prompt(content)
-    
-    loop = asyncio.get_event_loop()
-    response = await loop.run_in_executor(
-        None,
-        lambda: openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
-        )
-    )
-    
+def generate_questions_with_ollama(chunks: List[Document]) -> dict:
+    # Join content from chunks to build prompt
+    combined_text = "\n".join(chunk.page_content for chunk in chunks[:5])  # Limit to first 5 chunks
+
+    prompt = build_prompt(combined_text)
+
+    # Call Ollama CLI (assumes ollama model named 'llama2' is installed)
     try:
-        result = response['choices'][0]['message']['content']
-        return json.loads(result)
+        # subprocess to call ollama CLI with prompt
+        result = subprocess.run(
+            ["ollama", "query", "llama2", "--prompt", prompt],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        output = result.stdout.strip()
+
+        # Ollama returns JSON string, parse it
+        questions = json.loads(output)
+        return questions
+
     except Exception as e:
-        # Debug print (logs to backend stdout)
-        print("⚠️ Failed to parse response. Raw result:\n", result)
+        # On failure, return dummy error
         return {
-            "error": f"Failed to parse LLM response: {str(e)}",
-            "raw_response": result
+            "error": f"Failed to generate questions with Ollama: {e}",
+            "raw_response": output if 'output' in locals() else ""
         }

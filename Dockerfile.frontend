@@ -1,23 +1,48 @@
-# Dockerfile.frontend
 FROM python:3.10-slim
 
 WORKDIR /frontend
 
-COPY requirements.txt .
-
-# Install necessary system packages
-RUN apt-get update && apt-get install -y \
-    wkhtmltopdf \
-    libxrender1 \
-    libxext6 \
-    libfontconfig1 \
+# Install build tools and runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    wget \
+    git \
+    pkg-config \
+    autoconf \
+    automake \
+    libtool \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libfreetype6-dev \
+    zlib1g-dev \
+    libglib2.0-0 \
     poppler-utils \
     tesseract-ocr \
-    libglib2.0-0 \
-    && pip install --no-cache-dir -r requirements.txt \
-    && apt-get clean \
+    tesseract-ocr-tam \
+    tesseract-ocr-hin \
+    tesseract-ocr-eng \
+    qpdf \
+    unpaper \
+    pngquant \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Clone and build Ghostpdl (Ghostscript) in headless mode
+RUN git clone --depth 1 https://github.com/ArtifexSoftware/ghostpdl.git /tmp/ghostpdl && \
+    cd /tmp/ghostpdl && \
+    ./autogen.sh && \
+    ./configure --without-x --disable-contrib --disable-gtk --disable-dbus --disable-cups --disable-fontconfig && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd / && rm -rf /tmp/ghostpdl
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy app source code
 COPY . .
 
 EXPOSE 8501

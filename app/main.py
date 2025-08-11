@@ -1,9 +1,9 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from PyPDF2 import PdfReader
-import os
 from tempfile import NamedTemporaryFile
-from typing import List
+from typing import List, Optional
+import os
+import ocrmypdf
 
 from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -13,12 +13,11 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (you can restrict later)
+    allow_origins=["*"],  # allow all origins, adjust as needed
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 def extract_text_and_split(file_path: str, file_type: str) -> List[Document]:
     if file_type == "pdf":
@@ -33,10 +32,7 @@ def extract_text_and_split(file_path: str, file_type: str) -> List[Document]:
     chunks = splitter.split_documents(documents)
     return chunks
 
-
 def generate_dummy_questions_from_chunks(chunks: List[Document]):
-    # This is where you'd normally call a model
-    # For now, we just generate 1 dummy question per chunk
     fill_in = []
     mcq = []
     true_false = []
@@ -44,7 +40,7 @@ def generate_dummy_questions_from_chunks(chunks: List[Document]):
     two_mark = []
     five_mark = []
 
-    for i, chunk in enumerate(chunks[:5]):  # Limit to 5 chunks to keep things light
+    for chunk in chunks[:5]:  # limit to 5 chunks for speed
         text_preview = chunk.page_content[:100].strip().replace("\n", " ")
 
         fill_in.append(f"{text_preview} _______?")
@@ -67,24 +63,67 @@ def generate_dummy_questions_from_chunks(chunks: List[Document]):
         "five_mark": five_mark
     }
 
+def ocr_pdf_to_searchable_pdf(pdf_bytes: bytes, language_code: str) -> bytes:
+    with NamedTemporaryFile(suffix=".pdf", delete=False) as input_tmp, NamedTemporaryFile(suffix=".pdf", delete=False) as output_tmp:
+        input_tmp.write(pdf_bytes)
+        input_tmp.flush()
+        try:
+            ocrmypdf.ocr(
+                input_tmp.name,
+                output_tmp.name,
+                language=language_code,
+                deskew=True,
+                clean=True,
+                optimize=3,
+                progress_bar=False,
+                use_threads=True,
+                skip_text=True  # crucial to skip pages with existing text
+            )
+        except ocrmypdf.exceptions.PriorOcrFoundError:
+            # fallback: if OCR aborted due to existing text, just pass original
+            output_tmp.write(pdf_bytes)
+            output_tmp.flush()
+        with open(output_tmp.name, "rb") as f:
+            searchable_pdf = f.read()
+    os.unlink(input_tmp.name)
+    os.unlink(output_tmp.name)
+    return searchable_pdf
 
 @app.post("/process/")
-async def process_files(files: List[UploadFile] = File(...)):
+async def process_files(
+    files: List[UploadFile] = File(...),
+    language: Optional[str] = Form("eng")  # default to English
+):
     content = ""
     all_chunks = []
 
     for file in files:
         suffix = os.path.splitext(file.filename)[-1].lower().strip(".")
         with NamedTemporaryFile(delete=False, suffix=f".{suffix}") as tmp:
-            tmp.write(await file.read())
+            file_bytes = await file.read()
+            tmp.write(file_bytes)
             tmp.flush()
             tmp_path = tmp.name
 
-        if suffix in ["pdf", "txt"]:
-            chunks = extract_text_and_split(tmp_path, suffix)
-            all_chunks.extend(chunks)
-            for chunk in chunks:
-                content += chunk.page_content + "\n"
+        if suffix == "pdf":
+            try:
+                searchable_pdf_bytes = ocr_pdf_to_searchable_pdf(file_bytes, language)
+                with NamedTemporaryFile(delete=False, suffix=".pdf") as ocr_tmp:
+                    ocr_tmp.write(searchable_pdf_bytes)
+                    ocr_tmp.flush()
+                    ocr_tmp_path = ocr_tmp.name
+                chunks = extract_text_and_split(ocr_tmp_path, "pdf")
+                os.unlink(ocr_tmp_path)
+            except Exception:
+                chunks = extract_text_and_split(tmp_path, "pdf")
+        elif suffix == "txt":
+            chunks = extract_text_and_split(tmp_path, "txt")
+        else:
+            chunks = []
+
+        all_chunks.extend(chunks)
+        for chunk in chunks:
+            content += chunk.page_content + "\n"
 
         os.unlink(tmp_path)
 

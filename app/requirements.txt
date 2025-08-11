@@ -20,6 +20,4 @@ langchain-text-splitters>=0.0.1  # Text splitting utilities
 chromadb
 sentence-transformers
 huggingface-hub
-
-# LLM Provider (OpenAI)
-openai
+ocrmypdf
