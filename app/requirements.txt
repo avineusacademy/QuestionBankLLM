@@ -21,3 +21,7 @@ chromadb
 sentence-transformers
 huggingface-hub
 ocrmypdf
+requests
+transformers
+torch
+accelerate

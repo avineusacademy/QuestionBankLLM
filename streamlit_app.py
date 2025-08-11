@@ -8,7 +8,8 @@ import tempfile
 import os
 import ocrmypdf
 
-BACKEND_URL = "http://backend:8000/process/"
+BACKEND_URL = "http://fastapi-backend:8000/process/"
+
 
 def download_docx(questions):
     import docx

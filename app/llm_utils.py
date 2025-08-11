@@ -1,31 +1,68 @@
-import subprocess
 import json
+import re
 from typing import List
 from langchain_core.documents import Document
 
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+from langchain_community.llms import HuggingFacePipeline
+
+# ✅ Use a public, open-access model
+model_name = "tiiuae/falcon-7b-instruct"
+
+# Load tokenizer and model without requiring auth
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name)
+
+# Use HuggingFace pipeline
+pipe = pipeline(
+    "text-generation",
+    model=model,
+    tokenizer=tokenizer,
+    max_new_tokens=1024,
+    temperature=0.7,
+    do_sample=True,
+)
+
+llm = HuggingFacePipeline(pipeline=pipe)
+
+
+# Clean text before sending to model
+def clean_text(raw_text: str) -> str:
+    text = re.sub(r'\n+', '\n', raw_text)
+    text = re.sub(r'Page\s*\d+', '', text, flags=re.I)
+    text = re.sub(r'(Unit|Chapter)\s*\d+', '', text, flags=re.I)
+    text = re.sub(r'\s{2,}', ' ', text)
+    return text.strip()
+
+
+# Build the prompt
 def build_prompt(content: str) -> str:
     return f"""
-You are an expert teacher. Based on the following content, generate a comprehensive question bank with:
+You are an expert teacher and question paper designer.
 
-1. Fill in the blanks
-2. Multiple-choice questions (4 options with correct answer)
-3. True/False questions
-4. 1-mark short answer questions
-5. 2-mark brief explanation questions
-6. 5-mark long answer descriptive questions
+From the educational content provided below, generate a high-quality question bank in **valid JSON format only**.
 
-Content:
-\"\"\"
-{content[:4000]}
-\"\"\"
+✅ Instructions:
+- Use your own words to frame meaningful, exam-ready questions.
+- Avoid copying titles/headings directly as question text.
+- Make sure MCQs have 4 unique options and only one correct answer.
+- Do NOT add explanations or extra formatting.
+- Keep output clean, readable and structured as JSON.
 
-Respond with **only valid JSON** in the following format:
+Generate the following:
+1. 3 Fill in the blanks
+2. 3 Multiple-choice questions (4 options + correct answer)
+3. 3 True/False statements
+4. 3 One-mark short answer questions
+5. 2 Two-mark explanation questions
+6. 1 Five-mark descriptive question
 
+Return exactly this JSON format:
 {{
   "fill_in_the_blanks": ["..."],
   "mcq": [
     {{
-      "question": "Sample?",
+      "question": "...?",
       "options": ["A", "B", "C", "D"],
       "answer": "A"
     }}
@@ -35,32 +72,38 @@ Respond with **only valid JSON** in the following format:
   "two_mark": ["..."],
   "five_mark": ["..."]
 }}
+
+Educational Content:
+\"\"\"
+{content[:3000]}
+\"\"\"
 """
 
-def generate_questions_with_ollama(chunks: List[Document]) -> dict:
-    # Join content from chunks to build prompt
-    combined_text = "\n".join(chunk.page_content for chunk in chunks[:5])  # Limit to first 5 chunks
 
+# Extract only the JSON part from the response
+def extract_json(response: str) -> dict:
+    try:
+        match = re.search(r'{.*}', response, re.DOTALL)
+        if not match:
+            raise ValueError("No JSON block found")
+        return json.loads(match.group(0))
+    except Exception as e:
+        return {
+            "error": f"JSON parsing failed: {str(e)}",
+            "raw_response": response[:2000]
+        }
+
+
+# Main generator
+def generate_questions_with_ollama(chunks: List[Document]) -> dict:
+    combined_text = "\n".join(clean_text(chunk.page_content) for chunk in chunks[:5])
     prompt = build_prompt(combined_text)
 
-    # Call Ollama CLI (assumes ollama model named 'llama2' is installed)
     try:
-        # subprocess to call ollama CLI with prompt
-        result = subprocess.run(
-            ["ollama", "query", "llama2", "--prompt", prompt],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        output = result.stdout.strip()
-
-        # Ollama returns JSON string, parse it
-        questions = json.loads(output)
-        return questions
-
+        output = llm.invoke(prompt)
+        return extract_json(output)
     except Exception as e:
-        # On failure, return dummy error
         return {
-            "error": f"Failed to generate questions with Ollama: {e}",
-            "raw_response": output if 'output' in locals() else ""
+            "error": f"LLM generation failed: {str(e)}",
+            "raw_response": ""
         }

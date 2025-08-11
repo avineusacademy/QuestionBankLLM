@@ -9,11 +9,14 @@ from langchain_community.document_loaders import TextLoader, PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 
+# Import LLM-based question generator
+from llm_utils  import generate_questions_with_ollama
+
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # allow all origins, adjust as needed
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -32,37 +35,6 @@ def extract_text_and_split(file_path: str, file_type: str) -> List[Document]:
     chunks = splitter.split_documents(documents)
     return chunks
 
-def generate_dummy_questions_from_chunks(chunks: List[Document]):
-    fill_in = []
-    mcq = []
-    true_false = []
-    one_mark = []
-    two_mark = []
-    five_mark = []
-
-    for chunk in chunks[:5]:  # limit to 5 chunks for speed
-        text_preview = chunk.page_content[:100].strip().replace("\n", " ")
-
-        fill_in.append(f"{text_preview} _______?")
-        mcq.append({
-            "question": f"What is the main idea of: {text_preview}?",
-            "options": ["Option A", "Option B", "Option C", "Option D"],
-            "answer": "Option A"
-        })
-        true_false.append(f"{text_preview} (True/False)")
-        one_mark.append(f"What is {text_preview}?")
-        two_mark.append(f"Explain the concept in: {text_preview}.")
-        five_mark.append(f"Discuss in detail: {text_preview}.")
-
-    return {
-        "fill_in_the_blanks": fill_in,
-        "mcq": mcq,
-        "true_false": true_false,
-        "one_mark": one_mark,
-        "two_mark": two_mark,
-        "five_mark": five_mark
-    }
-
 def ocr_pdf_to_searchable_pdf(pdf_bytes: bytes, language_code: str) -> bytes:
     with NamedTemporaryFile(suffix=".pdf", delete=False) as input_tmp, NamedTemporaryFile(suffix=".pdf", delete=False) as output_tmp:
         input_tmp.write(pdf_bytes)
@@ -77,10 +49,9 @@ def ocr_pdf_to_searchable_pdf(pdf_bytes: bytes, language_code: str) -> bytes:
                 optimize=3,
                 progress_bar=False,
                 use_threads=True,
-                skip_text=True  # crucial to skip pages with existing text
+                skip_text=True  # Skip pages that already contain text
             )
         except ocrmypdf.exceptions.PriorOcrFoundError:
-            # fallback: if OCR aborted due to existing text, just pass original
             output_tmp.write(pdf_bytes)
             output_tmp.flush()
         with open(output_tmp.name, "rb") as f:
@@ -92,7 +63,7 @@ def ocr_pdf_to_searchable_pdf(pdf_bytes: bytes, language_code: str) -> bytes:
 @app.post("/process/")
 async def process_files(
     files: List[UploadFile] = File(...),
-    language: Optional[str] = Form("eng")  # default to English
+    language: Optional[str] = Form("eng")
 ):
     content = ""
     all_chunks = []
@@ -130,5 +101,7 @@ async def process_files(
     if not all_chunks:
         return {"content": content, "questions": {"error": "No valid content found."}}
 
-    questions = generate_dummy_questions_from_chunks(all_chunks)
+    # 🔄 Replace dummy generation with real LLM-powered question generator
+    questions = generate_questions_with_ollama(all_chunks)
+
     return {"content": content[:5000], "questions": questions}
